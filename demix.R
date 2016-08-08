@@ -3,6 +3,8 @@
 ##
 ## by Artem Sokolov
 
+library( quadprog )
+
 #' Constrained non-negative matrix factorization
 #'
 #' Learns a heterogeneous sample mixture model of the form x = Bw + b,
@@ -43,62 +45,46 @@ consNMF <- function( x, Bm1, wm, nIter=1000, fix.bias=FALSE )
     Bm1 <- Bm1 / p
     
     ## Initial estimates
-    B <- cbind( Bm1, 0 )
     f <- (1-wm) / (m-1)		## Start with equal contribution fractions
     w <- c( rep( f, m-1 ), wm )
     b <- 0
 
-    ## Define the objective function
-    f.obj <- function()
-    { r <- x - B %*% w - b; sqrt(mean( r * r )) }
+    ## Precompute constant factors
+    BB <- t( Bm1 ) %*% Bm1
+    Amat <- cbind( rep(1,m-1), diag(m-1) )
+    bvec <- c( 1 - w[m], rep(0,m-1) )
     
-    cat( "Initial RMSE :", f.obj(), "\n" )
+    ## Initial variable setup
+    u <- Bm1 %*% w[-m]
+    xb <- x - b
 
     for( iter in 1:nIter )
     {
         ## Estimate the missing basis
-        u <- B[,-m] %*% w[-m]
-        B[,m] <- (x-b-u) / w[m]
-        j <- which( B[,m] < 0 )
-        B[j,m] <- 0
-
-#        cat( "RMSE after estimating the missing basis:", f.obj(), "\n" )
+        Bm <- xb - u
+        j <- Bm < 0
+        Bm[j] <- 0
 
         ## Re-estimate the mixture coefficients
-        y <- x - B[,m] * w[m] - b
-        w[-m] <- convreg( B[,-m], y, 1 - w[m] )
-
-#        cat( "RMSE after estimating the mixture coefficients:", f.obj(), "\n" )
+        y <- xb - Bm
+        res <- solve.QP( Dmat=BB, dvec=t(y) %*% Bm1, Amat=Amat, bvec=bvec, meq=1 )
+        w[-m] <- res$solution
+        u <- Bm1 %*% w[-m]
 
         ## Estimate the bias term
         if( fix.bias == FALSE )
-            b <- mean( x - B %*% w )
-#        cat( "RMSE after estimating the bias term:", f.obj(), "\n" )
+            b <- mean( x - Bm - u )
+        xb <- x - b
 
+        ## Display progress
         if( iter %% as.integer(nIter / 5) == 0 )
-            cat( "RMSE after iteration", iter, ":", f.obj(), "\n" )
+        { r <- x - Bm - u - b
+            cat( "RMSE after iteration", iter, ":", sqrt(mean( r * r )), "\n" ) }
     }
+
+    ## Compose the final basis matrix
+    B <- cbind( Bm1, Bm / w[m] )
     
     list( B=B*p, w=w, b=b*p )
 }
 
-#' Linear regression with non-negative and convex constraints.
-#'
-#' Trains a linear model subject to the following constraints:
-#'   min (y - Xw)^T (y - Xw) s.t. w^T 1 = d, and w >= 0
-#'
-#' @param X n-by-p matrix of n samples in p-dimensional space
-#' @param y n-by-1 vector of labels
-#' @param d scalar that the sum of model weights has to be equal to
-#' @return A p-by-1 vector of the learned linear model weights
-convreg <- function( X, y, d=1 )
-{
-    library( quadprog )
-
-    ## Pass the call to a quadratic programming solver
-    p <- ncol(X)
-    Amat <- cbind( rep(1,p), diag(p) )
-    bvec <- c( d, rep(0,p) )
-    res <- solve.QP( Dmat=t(X) %*% X, dvec=t(X)%*%y, Amat=Amat, bvec=bvec, meq=1 )
-    res$solution
-}
