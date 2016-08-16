@@ -11,7 +11,7 @@ library( quadprog )
 #'  where x is a p-by-1 column vector representing the sample,
 #'  B is a p-by-m matrix of m basis vectors, w is a m-by-1 vector of
 #'  mixture coefficients, and b is a bias term. The model is subject to
-##  several constraints, which are outlined below.
+#'  several constraints, which are outlined below.
 #'
 #' The model is subject to non-negativity contraints and
 #'  the \sum_j w_j = 1 convexity contraint.
